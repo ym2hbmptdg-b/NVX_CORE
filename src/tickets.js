@@ -11,6 +11,12 @@ import {
 } from "discord.js";
 
 /* =========================================================
+   CONFIGURATION
+========================================================= */
+
+const STAFF_TICKET_ROLE_ID = "1552053390337384640";
+
+/* =========================================================
    TYPES DE TICKETS
 ========================================================= */
 
@@ -66,22 +72,16 @@ const TICKET_TYPES = {
 };
 
 /* =========================================================
-   UTILITAIRES TICKETS
+   UTILITAIRES
 ========================================================= */
 
 function getTicketOwnerId(topic) {
-  const match = topic?.match(
-    /NVX_TICKET_OWNER:([0-9]+)/
-  );
-
+  const match = topic?.match(/NVX_TICKET_OWNER:([0-9]+)/);
   return match?.[1] || null;
 }
 
 function getTicketClaimerId(topic) {
-  const match = topic?.match(
-    /NVX_TICKET_CLAIMED_BY:([0-9]+)/
-  );
-
+  const match = topic?.match(/NVX_TICKET_CLAIMED_BY:([0-9]+)/);
   return match?.[1] || null;
 }
 
@@ -98,43 +98,69 @@ function isTicketChannel(channel) {
   );
 }
 
-function isStaffMember(member) {
-  if (!member) {
+/* =========================================================
+   VÉRIFICATION STAFF TICKETS
+========================================================= */
+
+function isTicketStaff(member) {
+  if (!member?.roles?.cache) {
     return false;
   }
 
-  const hasManage =
-    member.permissions?.has(
-      PermissionFlagsBits.ManageChannels
+  return member.roles.cache.has(STAFF_TICKET_ROLE_ID);
+}
+
+/* =========================================================
+   BOUTONS TICKET
+========================================================= */
+
+function createTicketButtons(claimer = null) {
+  const claimButton = new ButtonBuilder()
+    .setCustomId(
+      claimer
+        ? "nxs_ticket_unclaim"
+        : "nxs_ticket_claim"
+    )
+    .setLabel(
+      claimer
+        ? "Unclaim"
+        : "Claim"
+    )
+    .setEmoji(
+      claimer
+        ? "🔴"
+        : "🟢"
+    )
+    .setStyle(
+      claimer
+        ? ButtonStyle.Danger
+        : ButtonStyle.Success
     );
 
-  if (hasManage) {
-    return true;
-  }
+  const transcriptButton = new ButtonBuilder()
+    .setCustomId("nxs_ticket_transcript")
+    .setLabel("Transcript")
+    .setEmoji("📄")
+    .setStyle(ButtonStyle.Secondary);
 
-  const staffRoles =
-    (process.env.STAFF_ROLE_NAMES || "")
-      .split(",")
-      .map(role =>
-        role.trim().toLowerCase()
-      )
-      .filter(Boolean);
+  const closeButton = new ButtonBuilder()
+    .setCustomId("nxs_ticket_close")
+    .setLabel("Fermer le ticket")
+    .setEmoji("🔒")
+    .setStyle(ButtonStyle.Danger);
 
-  return member.roles?.cache?.some(role =>
-    staffRoles.includes(
-      role.name.toLowerCase()
-    )
+  return new ActionRowBuilder().addComponents(
+    claimButton,
+    transcriptButton,
+    closeButton
   );
 }
 
 /* =========================================================
-   PANNEAU TICKETS
+   PANEL TICKETS
 ========================================================= */
 
-async function setupTicketPanel(
-  client,
-  supportChannelId
-) {
+async function setupTicketPanel(client, supportChannelId) {
   try {
     if (!supportChannelId) {
       console.log(
@@ -143,95 +169,74 @@ async function setupTicketPanel(
       return;
     }
 
-    const channel =
-      await client.channels
-        .fetch(supportChannelId)
-        .catch(() => null);
+    const channel = await client.channels
+      .fetch(supportChannelId)
+      .catch(() => null);
 
-    if (
-      !channel ||
-      !channel.isTextBased()
-    ) {
+    if (!channel || !channel.isTextBased()) {
       console.error(
         "❌ Salon support introuvable."
       );
       return;
     }
 
-    const messages =
-      await channel.messages
-        .fetch({
-          limit: 50
-        })
-        .catch(() => null);
+    const messages = await channel.messages
+      .fetch({ limit: 50 })
+      .catch(() => null);
 
     if (!messages) {
       return;
     }
 
-    const existingPanel =
-      messages.find(message =>
+    const existingPanel = messages.find(
+      message =>
         message.author.id === client.user.id &&
         message.embeds?.[0]?.title ===
           "🎫 NXS LABS — CENTRE DE SUPPORT"
+    );
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId("nxs_ticket_type")
+      .setPlaceholder(
+        "Choisis le type de demande..."
+      )
+      .addOptions(
+        Object.entries(TICKET_TYPES).map(
+          ([value, ticket]) => ({
+            label: ticket.label,
+            value,
+            description: ticket.description,
+            emoji: ticket.emoji
+          })
+        )
       );
 
-    const selectMenu =
-      new StringSelectMenuBuilder()
-        .setCustomId(
-          "nxs_ticket_type"
-        )
-        .setPlaceholder(
-          "Choisis le type de demande..."
-        )
-        .addOptions(
-          Object.entries(TICKET_TYPES)
-            .map(([value, ticket]) => ({
-              label: ticket.label,
-              value,
-              description: ticket.description,
-              emoji: ticket.emoji
-            }))
-        );
+    const row = new ActionRowBuilder()
+      .addComponents(selectMenu);
 
-    const row =
-      new ActionRowBuilder()
-        .addComponents(selectMenu);
-
-    const panelEmbed =
-      new EmbedBuilder()
-        .setColor(0x7C5CFC)
-        .setTitle(
-          "🎫 NXS LABS — CENTRE DE SUPPORT"
-        )
-        .setDescription(
-          "**Bienvenue dans le centre de support NXS LABS.** 🧪\n\n" +
-
-          "Tu as besoin d'aide, tu souhaites signaler un problème " +
-          "ou simplement contacter l'équipe ?\n\n" +
-
-          "Choisis directement **le type de demande** dans le menu ci-dessous.\n\n" +
-
-          "🔒 Ton ticket sera automatiquement créé dans un espace privé " +
-          "accessible uniquement par toi et l'équipe concernée.\n\n" +
-
-          "> 🚀 **Choisis une catégorie pour commencer.**"
-        )
-        .setFooter({
-          text:
-            "NXS LABS • Powered by NVX CORE"
-        })
-        .setTimestamp();
+    const panelEmbed = new EmbedBuilder()
+      .setColor(0x7C5CFC)
+      .setTitle(
+        "🎫 NXS LABS — CENTRE DE SUPPORT"
+      )
+      .setDescription(
+        "**Bienvenue dans le centre de support NXS LABS.** 🧪\n\n" +
+        "Tu as besoin d'aide, tu souhaites signaler un problème " +
+        "ou simplement contacter l'équipe ?\n\n" +
+        "Choisis directement **le type de demande** dans le menu ci-dessous.\n\n" +
+        "🔒 Ton ticket sera automatiquement créé dans un espace privé " +
+        "accessible uniquement par toi et l'équipe concernée.\n\n" +
+        "> 🚀 **Choisis une catégorie pour commencer.**"
+      )
+      .setFooter({
+        text: "NXS LABS • Powered by NVX CORE"
+      })
+      .setTimestamp();
 
     if (existingPanel) {
-
       await existingPanel.edit({
-        embeds: [
-          panelEmbed
-        ],
-        components: [
-          row
-        ]
+        embeds: [panelEmbed],
+        components: [row]
       });
 
       console.log(
@@ -242,12 +247,8 @@ async function setupTicketPanel(
     }
 
     await channel.send({
-      embeds: [
-        panelEmbed
-      ],
-      components: [
-        row
-      ]
+      embeds: [panelEmbed],
+      components: [row]
     });
 
     console.log(
@@ -269,30 +270,23 @@ async function setupTicketPanel(
 async function createTicket(
   interaction,
   ticketType,
-  categoryId,
-  staffRoleNames
+  categoryId
 ) {
-  const guild =
-    interaction.guild;
-
-  const ticket =
-    TICKET_TYPES[ticketType];
+  const guild = interaction.guild;
+  const ticket = TICKET_TYPES[ticketType];
 
   if (!guild || !ticket) {
     return;
   }
 
-  const category =
-    guild.channels.cache.get(
-      categoryId
-    );
+  const category = guild.channels.cache.get(
+    categoryId
+  );
 
   if (
     !category ||
-    category.type !==
-      ChannelType.GuildCategory
+    category.type !== ChannelType.GuildCategory
   ) {
-
     return interaction.reply({
       content:
         "⚠️ La catégorie des tickets est introuvable.",
@@ -300,9 +294,7 @@ async function createTicket(
     });
   }
 
-  /* =======================================================
-     VÉRIFIER SI LE MEMBRE A DÉJÀ UN TICKET
-  ======================================================= */
+  /* Vérifier ticket déjà ouvert */
 
   const existingTicket =
     guild.channels.cache.find(
@@ -313,7 +305,6 @@ async function createTicket(
     );
 
   if (existingTicket) {
-
     return interaction.reply({
       content:
         `🎫 Tu as déjà un ticket ouvert : ${existingTicket}`,
@@ -321,22 +312,7 @@ async function createTicket(
     });
   }
 
-  /* =======================================================
-     RÔLES STAFF
-  ======================================================= */
-
-  const staffRoleIds =
-    guild.roles.cache
-      .filter(role =>
-        staffRoleNames.includes(
-          role.name.toLowerCase()
-        )
-      )
-      .map(role => role.id);
-
-  /* =======================================================
-     PERMISSIONS
-  ======================================================= */
+  /* Permissions */
 
   const permissionOverwrites = [
     {
@@ -358,21 +334,7 @@ async function createTicket(
     },
 
     {
-      id: interaction.client.user.id,
-      allow: [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-        PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.AttachFiles,
-        PermissionFlagsBits.EmbedLinks
-      ]
-    }
-  ];
-
-  for (const roleId of staffRoleIds) {
-    permissionOverwrites.push({
-      id: roleId,
+      id: STAFF_TICKET_ROLE_ID,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
@@ -381,26 +343,34 @@ async function createTicket(
         PermissionFlagsBits.AttachFiles,
         PermissionFlagsBits.EmbedLinks
       ]
-    });
-  }
+    },
 
-  /* =======================================================
-     NOM DU TICKET
-  ======================================================= */
+    {
+      id: interaction.client.user.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageChannels,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.EmbedLinks
+      ]
+    }
+  ];
+
+  /* Nom */
 
   const safeUsername =
     interaction.user.username
       .toLowerCase()
       .replace(/[^a-z0-9-_]/g, "")
-      .slice(0, 18) ||
-    "membre";
+      .slice(0, 18) || "membre";
 
   const channelName =
     `ticket-${ticket.slug}-${safeUsername}`;
 
-  /* =======================================================
-     CRÉER LE SALON
-  ======================================================= */
+  /* Création */
 
   const ticketChannel =
     await guild.channels.create({
@@ -415,126 +385,58 @@ async function createTicket(
         `Ticket ${ticket.label} créé par ${interaction.user.tag}`
     });
 
-  /* =======================================================
-     BOUTONS
-  ======================================================= */
+  /* Embed */
 
-  const claimButton =
-    new ButtonBuilder()
-      .setCustomId(
-        "nxs_ticket_claim"
-      )
-      .setLabel(
-        "Claim"
-      )
-      .setEmoji("🟢")
-      .setStyle(
-        ButtonStyle.Success
-      );
-
-  const transcriptButton =
-    new ButtonBuilder()
-      .setCustomId(
-        "nxs_ticket_transcript"
-      )
-      .setLabel(
-        "Transcript"
-      )
-      .setEmoji("📄")
-      .setStyle(
-        ButtonStyle.Secondary
-      );
-
-  const closeButton =
-    new ButtonBuilder()
-      .setCustomId(
-        "nxs_ticket_close"
-      )
-      .setLabel(
-        "Fermer le ticket"
-      )
-      .setEmoji("🔒")
-      .setStyle(
-        ButtonStyle.Danger
-      );
-
-  const ticketRow =
-    new ActionRowBuilder()
-      .addComponents(
-        claimButton,
-        transcriptButton,
-        closeButton
-      );
-
-  /* =======================================================
-     EMBED DU TICKET
-  ======================================================= */
-
-  const ticketEmbed =
-    new EmbedBuilder()
-      .setColor(0x7C5CFC)
-      .setTitle(
-        `${ticket.emoji} ${ticket.label}`
-      )
-      .setDescription(
-        `Bienvenue ${interaction.user} !\n\n` +
-
-        `**Catégorie :** ${ticket.label}\n\n` +
-
-        `${ticket.description}\n\n` +
-
-        "📝 **Décris ta demande ci-dessous.**\n" +
-        "Un membre de l'équipe viendra te répondre dès que possible.\n\n" +
-
-        "> 🔒 Ce ticket est privé.\n" +
-        "> 🟢 Un membre du staff peut prendre en charge ce ticket.\n" +
-        "> 📄 Un transcript peut être généré à tout moment."
-      )
-      .addFields(
-        {
-          name: "👤 Demandeur",
-          value:
-            `${interaction.user}`,
-          inline: true
-        },
-        {
-          name: "📂 Catégorie",
-          value:
-            `${ticket.emoji} ${ticket.label}`,
-          inline: true
-        },
-        {
-          name: "🟢 Responsable",
-          value:
-            "Aucun membre du staff pour le moment.",
-          inline: false
-        }
-      )
-      .setFooter({
-        text:
-          "NXS LABS • NVX CORE"
-      })
-      .setTimestamp();
+  const ticketEmbed = new EmbedBuilder()
+    .setColor(0x7C5CFC)
+    .setTitle(
+      `${ticket.emoji} ${ticket.label}`
+    )
+    .setDescription(
+      `Bienvenue ${interaction.user} !\n\n` +
+      `**Catégorie :** ${ticket.label}\n\n` +
+      `${ticket.description}\n\n` +
+      "📝 **Décris ta demande ci-dessous.**\n" +
+      "Un membre de l'équipe viendra te répondre dès que possible.\n\n" +
+      "> 🔒 Ce ticket est privé.\n" +
+      "> 🟢 Le staff peut prendre en charge ce ticket.\n" +
+      "> 📄 Un transcript peut être généré."
+    )
+    .addFields(
+      {
+        name: "👤 Demandeur",
+        value: `${interaction.user}`,
+        inline: true
+      },
+      {
+        name: "📂 Catégorie",
+        value:
+          `${ticket.emoji} ${ticket.label}`,
+        inline: true
+      },
+      {
+        name: "🟢 Responsable",
+        value:
+          "Aucun membre du staff pour le moment.",
+        inline: false
+      }
+    )
+    .setFooter({
+      text: "NXS LABS • NVX CORE"
+    })
+    .setTimestamp();
 
   await ticketChannel.send({
     content:
       `${interaction.user} • **Ticket ouvert**`,
-    embeds: [
-      ticketEmbed
-    ],
+    embeds: [ticketEmbed],
     components: [
-      ticketRow
+      createTicketButtons()
     ],
     allowedMentions: {
-      users: [
-        interaction.user.id
-      ]
+      users: [interaction.user.id]
     }
   });
-
-  /* =======================================================
-     RÉPONSE AU MEMBRE
-  ======================================================= */
 
   return interaction.reply({
     content:
@@ -547,11 +449,8 @@ async function createTicket(
    CLAIM
 ========================================================= */
 
-async function claimTicket(
-  interaction
-) {
-  const channel =
-    interaction.channel;
+async function claimTicket(interaction) {
+  const channel = interaction.channel;
 
   if (!isTicketChannel(channel)) {
     return interaction.reply({
@@ -561,10 +460,10 @@ async function claimTicket(
     });
   }
 
-  if (!isStaffMember(interaction.member)) {
+  if (!isTicketStaff(interaction.member)) {
     return interaction.reply({
       content:
-        "⛔ Seul le staff peut prendre en charge un ticket.",
+        "⛔ Tu n'as pas le rôle autorisé pour gérer les tickets.",
       ephemeral: true
     });
   }
@@ -573,7 +472,6 @@ async function claimTicket(
     getTicketClaimerId(channel.topic);
 
   if (currentClaimer) {
-
     const claimer =
       await interaction.guild.members
         .fetch(currentClaimer)
@@ -581,109 +479,160 @@ async function claimTicket(
 
     return interaction.reply({
       content:
-        `🟠 Ce ticket est déjà pris en charge par ${
+        `🟠 Ce ticket est déjà claim par ${
           claimer || `<@${currentClaimer}>`
         }.`,
       ephemeral: true
     });
   }
 
+  const ownerId =
+    getTicketOwnerId(channel.topic);
+
   await channel.setTopic(
     buildTicketTopic(
-      getTicketOwnerId(channel.topic),
+      ownerId,
       interaction.user.id
     )
   );
 
   const messages =
-    await channel.messages
-      .fetch({
-        limit: 20
-      })
-      .catch(() => null);
+    await channel.messages.fetch({
+      limit: 20
+    });
 
   const ticketMessage =
-    messages?.find(
+    messages.find(
       message =>
         message.author.id ===
           interaction.client.user.id &&
         message.components?.some(row =>
-          row.components?.some(component =>
-            component.customId ===
-              "nxs_ticket_claim"
+          row.components?.some(
+            component =>
+              component.customId ===
+                "nxs_ticket_claim"
           )
         )
     );
 
   if (ticketMessage) {
-
-    const row =
-      new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId(
-              "nxs_ticket_claim"
-            )
-            .setLabel(
-              `Claimé par ${interaction.user.username.slice(0, 50)}`
-            )
-            .setEmoji("🟢")
-            .setStyle(
-              ButtonStyle.Success
-            )
-            .setDisabled(true),
-
-          new ButtonBuilder()
-            .setCustomId(
-              "nxs_ticket_transcript"
-            )
-            .setLabel(
-              "Transcript"
-            )
-            .setEmoji("📄")
-            .setStyle(
-              ButtonStyle.Secondary
-            ),
-
-          new ButtonBuilder()
-            .setCustomId(
-              "nxs_ticket_close"
-            )
-            .setLabel(
-              "Fermer le ticket"
-            )
-            .setEmoji("🔒")
-            .setStyle(
-              ButtonStyle.Danger
-            )
-        );
-
     await ticketMessage.edit({
       components: [
-        row
+        createTicketButtons(
+          interaction.user.id
+        )
       ]
     });
   }
 
   await channel.send({
     content:
-      `🟢 **Ticket pris en charge par ${interaction.user}.**`,
+      `🟢 **Ticket claim par ${interaction.user}.**`,
     allowedMentions: {
-      users: [
-        interaction.user.id
-      ]
+      users: [interaction.user.id]
     }
   });
 
   return interaction.reply({
     content:
-      "✅ Tu es maintenant responsable de ce ticket.",
+      "✅ Ticket claim avec succès.",
     ephemeral: true
   });
 }
 
 /* =========================================================
-   TRANSCRIPT
+   UNCLAIM
+========================================================= */
+
+async function unclaimTicket(interaction) {
+  const channel = interaction.channel;
+
+  if (!isTicketChannel(channel)) {
+    return interaction.reply({
+      content:
+        "⛔ Ce salon n'est pas un ticket NVX CORE.",
+      ephemeral: true
+    });
+  }
+
+  if (!isTicketStaff(interaction.member)) {
+    return interaction.reply({
+      content:
+        "⛔ Tu n'as pas le rôle autorisé pour gérer les tickets.",
+      ephemeral: true
+    });
+  }
+
+  const currentClaimer =
+    getTicketClaimerId(channel.topic);
+
+  if (!currentClaimer) {
+    return interaction.reply({
+      content:
+        "ℹ️ Ce ticket n'est actuellement claim par personne.",
+      ephemeral: true
+    });
+  }
+
+  if (
+    currentClaimer !==
+    interaction.user.id
+  ) {
+    return interaction.reply({
+      content:
+        "⛔ Seul le membre qui a claim ce ticket peut faire Unclaim.",
+      ephemeral: true
+    });
+  }
+
+  const ownerId =
+    getTicketOwnerId(channel.topic);
+
+  await channel.setTopic(
+    buildTicketTopic(ownerId)
+  );
+
+  const messages =
+    await channel.messages.fetch({
+      limit: 20
+    });
+
+  const ticketMessage =
+    messages.find(
+      message =>
+        message.author.id ===
+          interaction.client.user.id &&
+        message.components?.some(row =>
+          row.components?.some(
+            component =>
+              component.customId ===
+                "nxs_ticket_unclaim"
+          )
+        )
+    );
+
+  if (ticketMessage) {
+    await ticketMessage.edit({
+      components: [
+        createTicketButtons()
+      ]
+    });
+  }
+
+  await channel.send({
+    content:
+      `🔴 **${interaction.user} a retiré le claim du ticket.**`
+  });
+
+  return interaction.reply({
+    content:
+      "✅ Ticket unclaim.",
+    ephemeral: true
+  });
+}
+
+/* =========================================================
+   RÉCUPÉRER TOUS LES MESSAGES
 ========================================================= */
 
 async function fetchAllMessages(channel) {
@@ -691,7 +640,6 @@ async function fetchAllMessages(channel) {
   let lastId = null;
 
   while (true) {
-
     const options = {
       limit: 100
     };
@@ -701,8 +649,7 @@ async function fetchAllMessages(channel) {
     }
 
     const messages =
-      await channel.messages
-        .fetch(options);
+      await channel.messages.fetch(options);
 
     if (!messages.size) {
       break;
@@ -727,9 +674,11 @@ async function fetchAllMessages(channel) {
   );
 }
 
-async function generateTranscript(
-  channel
-) {
+/* =========================================================
+   TRANSCRIPT
+========================================================= */
+
+async function generateTranscript(channel) {
   const logChannelId =
     process.env.TICKET_LOG_CHANNEL_ID;
 
@@ -810,31 +759,26 @@ async function generateTranscript(
 
   transcript +=
     "==================================================\n";
+
   transcript +=
     "MESSAGES\n";
+
   transcript +=
     "==================================================\n\n";
 
   for (const message of messages) {
-
     const date =
       new Date(
         message.createdTimestamp
-      ).toLocaleString(
-        "fr-FR"
-      );
+      ).toLocaleString("fr-FR");
 
     const author =
       message.author?.tag ||
       "Utilisateur inconnu";
 
     let content =
-      message.content || "";
-
-    if (!content) {
-      content =
-        "[Message sans texte]";
-    }
+      message.content ||
+      "[Message sans texte]";
 
     transcript +=
       `[${date}] ${author} (${message.author?.id || "?"})\n`;
@@ -843,11 +787,13 @@ async function generateTranscript(
       `${content}\n`;
 
     if (message.attachments.size) {
-
       transcript +=
         "Pièces jointes :\n";
 
-      for (const attachment of message.attachments.values()) {
+      for (
+        const attachment of
+        message.attachments.values()
+      ) {
         transcript +=
           `- ${attachment.name || "fichier"} : ${attachment.url}\n`;
       }
@@ -870,15 +816,12 @@ async function generateTranscript(
   transcript +=
     "NVX CORE • NXS LABS\n";
 
-  const buffer =
-    Buffer.from(
-      transcript,
-      "utf8"
-    );
-
   const attachment =
     new AttachmentBuilder(
-      buffer,
+      Buffer.from(
+        transcript,
+        "utf8"
+      ),
       {
         name:
           `${channel.name}-transcript.txt`
@@ -927,12 +870,8 @@ async function generateTranscript(
       .setTimestamp();
 
   await logChannel.send({
-    embeds: [
-      embed
-    ],
-    files: [
-      attachment
-    ]
+    embeds: [embed],
+    files: [attachment]
   });
 
   return messages.length;
@@ -942,9 +881,7 @@ async function generateTranscript(
    BOUTON TRANSCRIPT
 ========================================================= */
 
-async function transcriptTicket(
-  interaction
-) {
+async function transcriptTicket(interaction) {
   const channel =
     interaction.channel;
 
@@ -956,10 +893,10 @@ async function transcriptTicket(
     });
   }
 
-  if (!isStaffMember(interaction.member)) {
+  if (!isTicketStaff(interaction.member)) {
     return interaction.reply({
       content:
-        "⛔ Seul le staff peut générer un transcript.",
+        "⛔ Tu n'as pas le rôle autorisé pour générer un transcript.",
       ephemeral: true
     });
   }
@@ -969,19 +906,15 @@ async function transcriptTicket(
   });
 
   try {
-
     const messageCount =
-      await generateTranscript(
-        channel
-      );
+      await generateTranscript(channel);
 
     return interaction.editReply({
       content:
-        `✅ Transcript généré avec succès. **${messageCount} messages** ont été enregistrés dans le salon des logs.`
+        `✅ Transcript généré avec succès. **${messageCount} messages** enregistrés dans le salon des logs.`
     });
 
   } catch (error) {
-
     console.error(
       "❌ Erreur transcript :",
       error
@@ -989,7 +922,7 @@ async function transcriptTicket(
 
     return interaction.editReply({
       content:
-        "❌ Impossible de générer le transcript. Vérifie que le salon de logs est accessible par NVX CORE."
+        "❌ Impossible de générer le transcript. Vérifie `TICKET_LOG_CHANNEL_ID` et les permissions de NVX CORE."
     });
   }
 }
@@ -998,16 +931,11 @@ async function transcriptTicket(
    FERMETURE
 ========================================================= */
 
-async function closeTicket(
-  interaction
-) {
+async function closeTicket(interaction) {
   const channel =
     interaction.channel;
 
-  if (
-    !channel ||
-    !isTicketChannel(channel)
-  ) {
+  if (!isTicketChannel(channel)) {
     return interaction.reply({
       content:
         "⛔ Ce salon n'est pas un ticket NVX CORE.",
@@ -1015,30 +943,12 @@ async function closeTicket(
     });
   }
 
-  const ownerId =
-    getTicketOwnerId(channel.topic);
+  /* SEUL LE RÔLE STAFF TICKETS */
 
-  const isOwner =
-    interaction.user.id === ownerId;
-
-  const hasManage =
-    interaction.member?.permissions?.has(
-      PermissionFlagsBits.ManageChannels
-    );
-
-  const isStaff =
-    isStaffMember(
-      interaction.member
-    );
-
-  if (
-    !isOwner &&
-    !hasManage &&
-    !isStaff
-  ) {
+  if (!isTicketStaff(interaction.member)) {
     return interaction.reply({
       content:
-        "⛔ Tu ne peux pas fermer ce ticket.",
+        "⛔ Seul le staff avec le rôle autorisé peut fermer un ticket.",
       ephemeral: true
     });
   }
@@ -1052,22 +962,16 @@ async function closeTicket(
         "Confirmer la fermeture"
       )
       .setEmoji("✅")
-      .setStyle(
-        ButtonStyle.Danger
-      );
+      .setStyle(ButtonStyle.Danger);
 
   const cancelButton =
     new ButtonBuilder()
       .setCustomId(
         "nxs_ticket_close_cancel"
       )
-      .setLabel(
-        "Annuler"
-      )
+      .setLabel("Annuler")
       .setEmoji("↩️")
-      .setStyle(
-        ButtonStyle.Secondary
-      );
+      .setStyle(ButtonStyle.Secondary);
 
   const row =
     new ActionRowBuilder()
@@ -1079,26 +983,19 @@ async function closeTicket(
   return interaction.reply({
     content:
       "⚠️ **Es-tu sûr de vouloir fermer ce ticket ?**\n\nLe transcript sera généré avant la suppression du salon.",
-    components: [
-      row
-    ]
+    components: [row]
   });
 }
 
 /* =========================================================
-   CONFIRMATION DE FERMETURE
+   CONFIRMATION FERMETURE
 ========================================================= */
 
-async function confirmCloseTicket(
-  interaction
-) {
+async function confirmCloseTicket(interaction) {
   const channel =
     interaction.channel;
 
-  if (
-    !channel ||
-    !isTicketChannel(channel)
-  ) {
+  if (!isTicketChannel(channel)) {
     return interaction.reply({
       content:
         "⛔ Ce salon n'est pas un ticket NVX CORE.",
@@ -1106,30 +1003,10 @@ async function confirmCloseTicket(
     });
   }
 
-  const ownerId =
-    getTicketOwnerId(channel.topic);
-
-  const isOwner =
-    interaction.user.id === ownerId;
-
-  const hasManage =
-    interaction.member?.permissions?.has(
-      PermissionFlagsBits.ManageChannels
-    );
-
-  const isStaff =
-    isStaffMember(
-      interaction.member
-    );
-
-  if (
-    !isOwner &&
-    !hasManage &&
-    !isStaff
-  ) {
+  if (!isTicketStaff(interaction.member)) {
     return interaction.reply({
       content:
-        "⛔ Tu ne peux pas fermer ce ticket.",
+        "⛔ Tu n'as pas le rôle autorisé pour fermer ce ticket.",
       ephemeral: true
     });
   }
@@ -1137,13 +1014,9 @@ async function confirmCloseTicket(
   await interaction.deferUpdate();
 
   try {
-
-    await generateTranscript(
-      channel
-    );
+    await generateTranscript(channel);
 
   } catch (error) {
-
     console.error(
       "❌ Erreur transcript lors de la fermeture :",
       error
@@ -1151,7 +1024,7 @@ async function confirmCloseTicket(
 
     await interaction.message.edit({
       content:
-        "⚠️ Le transcript n'a pas pu être généré. Le ticket ne sera pas supprimé pour éviter de perdre l'historique.",
+        "⚠️ Le transcript n'a pas pu être généré. Le ticket ne sera pas supprimé.",
       components: []
     });
 
@@ -1165,7 +1038,6 @@ async function confirmCloseTicket(
   });
 
   setTimeout(async () => {
-
     await channel.delete(
       `Ticket fermé par ${interaction.user.tag}`
     ).catch(error =>
@@ -1174,17 +1046,14 @@ async function confirmCloseTicket(
         error
       )
     );
-
   }, 2000);
 }
 
 /* =========================================================
-   ANNULATION DE FERMETURE
+   ANNULATION
 ========================================================= */
 
-async function cancelCloseTicket(
-  interaction
-) {
+async function cancelCloseTicket(interaction) {
   return interaction.update({
     content:
       "↩️ **Fermeture annulée.** Le ticket reste ouvert.",
@@ -1200,30 +1069,23 @@ export function setupTicketSystem(
   client,
   {
     supportChannelId,
-    ticketCategoryId,
-    staffRoleNames
+    ticketCategoryId
   }
 ) {
 
-  /* -------------------------------------------------------
-     PANEL AU DÉMARRAGE
-  ------------------------------------------------------- */
+  /* PANEL AU DÉMARRAGE */
 
   client.once(
     Events.ClientReady,
     async () => {
-
       await setupTicketPanel(
         client,
         supportChannelId
       );
-
     }
   );
 
-  /* -------------------------------------------------------
-     INTERACTIONS
-  ------------------------------------------------------- */
+  /* INTERACTIONS */
 
   client.on(
     Events.InteractionCreate,
@@ -1231,9 +1093,7 @@ export function setupTicketSystem(
 
       try {
 
-        /* ===================================================
-           MENU TICKET
-        =================================================== */
+        /* MENU TICKET */
 
         if (
           interaction.isStringSelectMenu() &&
@@ -1258,81 +1118,77 @@ export function setupTicketSystem(
           return createTicket(
             interaction,
             ticketType,
-            ticketCategoryId,
-            staffRoleNames
+            ticketCategoryId
           );
         }
 
-        /* ===================================================
-           CLAIM
-        =================================================== */
+        /* CLAIM */
 
         if (
           interaction.isButton() &&
           interaction.customId ===
             "nxs_ticket_claim"
         ) {
-
           return claimTicket(
             interaction
           );
         }
 
-        /* ===================================================
-           TRANSCRIPT
-        =================================================== */
+        /* UNCLAIM */
+
+        if (
+          interaction.isButton() &&
+          interaction.customId ===
+            "nxs_ticket_unclaim"
+        ) {
+          return unclaimTicket(
+            interaction
+          );
+        }
+
+        /* TRANSCRIPT */
 
         if (
           interaction.isButton() &&
           interaction.customId ===
             "nxs_ticket_transcript"
         ) {
-
           return transcriptTicket(
             interaction
           );
         }
 
-        /* ===================================================
-           FERMETURE
-        =================================================== */
+        /* FERMETURE */
 
         if (
           interaction.isButton() &&
           interaction.customId ===
             "nxs_ticket_close"
         ) {
-
           return closeTicket(
             interaction
           );
         }
 
-        /* ===================================================
-           CONFIRMATION FERMETURE
-        =================================================== */
+        /* CONFIRMATION */
 
         if (
           interaction.isButton() &&
           interaction.customId ===
             "nxs_ticket_close_confirm"
         ) {
-
           return confirmCloseTicket(
             interaction
           );
         }
 
-        /* ===================================================
-           ANNULATION FERMETURE
-        =================================================== */
+        /* ANNULATION */
 
         if (
           interaction.isButton() &&
           interaction.customId ===
             "nxs_ticket_close_cancel"
         ) {
-
           return cancelCloseTicket(
             interaction
           );
@@ -1349,7 +1205,6 @@ export function setupTicketSystem(
           interaction.replied ||
           interaction.deferred
         ) {
-
           return interaction.followUp({
             content:
               "⚠️ Une erreur est survenue avec le système de tickets.",
