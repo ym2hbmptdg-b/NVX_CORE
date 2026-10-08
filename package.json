@@ -1,0 +1,19 @@
+{
+  "name": "nvx-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bot Discord officiel pour TAG::OUT et NVX LABS.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "register": "node src/register-commands.js",
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=24.17.0"
+  },
+  "dependencies": {
+    "discord.js": "14.25.0",
+    "dotenv": "17.2.2"
+  }
+}
